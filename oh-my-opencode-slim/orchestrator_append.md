@@ -37,6 +37,41 @@ Enforcement:
 - When delegating to any specialist agent, pass this workflow down in the delegation prompt so they follow the same plan-first, audit, then build/test-and-fix order.
 - This applies to both the orchestrator itself and every delegated agent.
 
+## Planning Doctrine (MUST — applies to ALL orchestrators)
+
+Every orchestrator (main or sub-orchestrator) **MUST** delegate upfront planning to the `@planner` subagent before any implementation work begins. Planning is not optional and not a convenience step — it is a hard gate.
+
+### What the planner produces
+
+The `@planner` subagent **MUST** produce and **write to disk** a structured plan in markdown format:
+
+| Artifact | When produced | Location |
+|---|---|---|
+| `PLAN.md` | Every non-trivial project, main orchestrator scope | Project root |
+| `plan-for-subprojectN.md` | Big/porting/multi-subsystem projects | Project root, one file per sub-orchestrator compartment |
+
+The plan must cover (in order):
+1. **Research gate** — pin exact versions of every tool/library/framework before writing anything.
+2. **Architecture** — for porting: best architecture for the clone (1:1 source → target map, file structure mirror, tech-stack decisions with explicit rationale).
+3. **Implementation sequence** — ordered phases with dependency graph, parallelizable lanes identified, and verification gates between phases.
+4. **Parity verification** — for porting: artifact-by-artifact attendance check plan, behavior/test equivalence plan, UI/UX screen-for-screen parity plan.
+5. **Build/test and fix gate** — build passes, tests pass, zero regressions.
+
+### Orchestrator responsibilities
+
+- The **main orchestrator** calls `@planner` with the FULL user request + rulebook doctrine + system context. The planner writes `PLAN.md` and (for big/porting) the `plan-for-subprojectN.md` files. The orchestrator reviews the plan before dispatching implementation lanes.
+- The **sub-orchestrator** calls `@planner` with its SUB-PROJECT ONLY scope (paths, objectives, constraints as handed down by the main orchestrator). The planner writes the sub-project's `plan-for-subprojectN.md`. The sub-orchestrator reviews before dispatching its own implementation lanes.
+- Neither orchestrator may start implementation work until the plan is written and reviewed.
+- The plan is the source of truth for all subsequent delegation — every specialist delegation references the plan phase it belongs to.
+
+### Porting-specific plan requirements
+
+For `porting` type projects, the plan **MUST additionally** include:
+
+1. **Architecture choice for the exact clone** — pick the best architecture that preserves 1:1 functional equivalence. Document the mapping: source framework → target framework, source patterns → target patterns. No "creative" or "modernized" architecture choices allowed.
+2. **UI/UX parity checklist** — every screen, component, layout, visual style, color, spacing, font, icon, animation, interaction, and responsive breakpoint from the source must appear in the port. This is part of the artifact inventory.
+3. **Zero-diversion guarantee** — the plan must state explicitly: "No functionality changes, no UI/UX redesign, no modernization, no renaming for taste, no reordering of code." Every deviation from the source is a bug unless the user approves it in writing.
+
 ## Project Rulebook (mandatory for every project task)
 
 A SQLite rulebook defines how each type of project must be handled. Consult it BEFORE planning any project work.
@@ -56,6 +91,14 @@ A SQLite rulebook defines how each type of project must be handled. Consult it B
   - `upgrade_vibe`: capture the user's literal terms, restate them concretely, show a PLAN SUMMARY, and get approval BEFORE writing any code.
   - `big`: compartmentalize — one sub-orchestrator per subsystem, background lanes, independent final audit.
 - Pass the type's doctrine down in every delegation prompt (research/implementation/design lanes).
+
+## Subagent Source Scope (applies to ALL project tasks)
+
+Subagents must read ONLY the sources explicitly assigned in their delegation brief — normally project source code paths only.
+
+- NEVER read installed/tooling artifacts unless the brief explicitly assigns them: `~/.config/opencode`, `~/.opencode`, opencode binaries under `bin/`, global `node_modules/`, `.git/`, caches, or OS/tool installs.
+- Per-lane limits: `@explorer/@fixer/@coder/@auditor/@designer/@ui-designer/@oracle/@planner` → assigned repo paths only (read-only except writer lanes on owned paths); `@researcher/@librarian` → web sources only, no filesystem reads except explicitly assigned paths; `@sub-orchestrator` → its compartment paths only, and it must propagate the same scope limit to every child it spawns.
+- When any project task is done, scoping resets: each new delegation names its allowed paths again. Missing path in brief = off-limits. If a needed file is outside scope, stop and route back to the orchestrator instead of widening scope silently.
 
 ## Large-Project Compartmentalization & @sub-orchestrator
 
