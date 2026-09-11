@@ -5,12 +5,18 @@
 # Usage:
 #   ./install.sh [rulebook|config|full] [--yes]
 #
-#   rulebook   Install the rulebook CLI so `rulebook` is callable from anywhere
+#   rulebook   Provision bun (if missing) and install the rulebook CLI so
+#              `rulebook` is callable from anywhere
 #              (wrapper in ~/.local/bin or /usr/local/bin, plus bashrc PATH if needed).
 #   config     Install the whole OpenCode config from this repo into
 #              ~/.config/opencode (backs up an existing config first).
 #   full       Do both rulebook + config. (default)
 #   --yes      Skip all interactive prompts.
+#
+# bun provisioning (runs automatically when bun is not already installed):
+#   - if `bun` is already on PATH or in a standard location -> no download, reuse it
+#   - else if bin/bun-linux-aarch64-v1.4.2.tar.gz is bundled in this repo -> extract, no download
+#   - else download the tarball from GitHub releases (prompts for consent; ~35 MB)
 #
 set -euo pipefail
 
@@ -40,6 +46,81 @@ confirm() { # $1 = prompt
 }
 
 # ---------------------------------------------------------------------------
+# bun: locate, install (from repo tarball or GitHub download), or no-op
+# ---------------------------------------------------------------------------
+BUN_VERSION="1.4.2"
+BUN_ARCH="aarch64"                      # this build: linux-aarch64
+BUN_TARBALL="bun-linux-${BUN_ARCH}-v${BUN_VERSION}.tar.gz"
+BUN_REPO_URL="https://raw.githubusercontent.com/juagamesacc-pixel/my-opencode-agent-config/main/bin/${BUN_TARBALL}"
+BUN_INSTALL_DIR="$HOME/.bun/bin"
+BUN_BIN=""
+
+find_bun() {
+  # 1) already on PATH
+  if command -v bun >/dev/null 2>&1; then
+    BUN_BIN="$(command -v bun)"
+    return 0
+  fi
+  # 2) standard install locations
+  for cand in "$HOME/.bun/bin/bun" /root/.bun/bin/bun /usr/local/bin/bun /usr/bin/bun /opt/bun/bin/bun; do
+    if [ -x "$cand" ]; then
+      BUN_BIN="$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_bun() {
+  if find_bun; then
+    say "bun already available at $BUN_BIN — version $("$BUN_BIN" --version 2>/dev/null || echo '?')"
+    return 0
+  fi
+  warn "bun not found on this system."
+
+  local tarball_src=""
+  # preferred: tarball bundled with the repo clone — no download
+  if [ -f "$REPO_DIR/bin/$BUN_TARBALL" ]; then
+    tarball_src="$REPO_DIR/bin/$BUN_TARBALL"
+    say "Using bundled bun tarball from this repo (no download): bin/$BUN_TARBALL"
+  else
+    # fallback: download from GitHub releases
+    if command -v curl >/dev/null 2>&1; then
+      local dl=(curl -fL --progress-bar -o "$BUN_TARBALL" "$BUN_REPO_URL")
+    elif command -v wget >/dev/null 2>&1; then
+      local dl=(wget -q -O "$BUN_TARBALL" "$BUN_REPO_URL")
+    else
+      die "Neither curl nor wget available; cannot download bun. Get it from https://bun.sh/docs/installation"
+    fi
+    if confirm "Download bun ${BUN_VERSION} from GitHub releases (~35 MB, mobile-data consent needed)? [y/N]"; then
+      "${dl[@]}"
+      tarball_src="$BUN_TARBALL"
+    else
+      warn "Skipped bun download — rulebook/plugin require bun. Install later via: bun install"
+      return 1
+    fi
+  fi
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  tar xzf "$tarball_src" -C "$tmpdir"
+  mkdir -p "$BUN_INSTALL_DIR"
+  mv "$tmpdir/bun" "$tmpdir/bunx" "$BUN_INSTALL_DIR/"
+  rm -rf "$tmpdir"
+  BUN_BIN="$BUN_INSTALL_DIR/bun"
+  if [ -f "$BUN_TARBALL" ] && [ "$BUN_TARBALL" != "$REPO_DIR/bin/$BUN_TARBALL" ]; then rm -f "$BUN_TARBALL"; fi
+  say "bun installed at $BUN_BIN — version $("$BUN_BIN" --version)"
+
+  # ensure ~/.bun/bin is on PATH for future shells
+  if ! grep -qE "PATH=.*.bun/bin" "$HOME/.bashrc" 2>/dev/null; then
+    printf '\n# bun\n' >> "$HOME/.bashrc"
+    printf 'export PATH="$HOME/.bun/bin:$PATH"\n' >> "$HOME/.bashrc"
+    say "Added $HOME/.bun/bin to PATH in ~/.bashrc"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # bashrc: idempotently ensure the background-subagents flag (+ PATH for ~/.local/bin)
 # ---------------------------------------------------------------------------
 ensure_bashrc() {
@@ -64,6 +145,12 @@ ensure_bashrc() {
 # rulebook CLI install
 # ---------------------------------------------------------------------------
 install_rulebook() {
+  # bun is the preferred runtime for the rulebook MCP/CLI — provision it first
+  if ! install_bun; then
+    warn "Skipping rulebook install: bun unavailable and not downloaded."
+    return 1
+  fi
+
   if [ "$REPO_DIR" != "$CONFIG_DIR" ]; then
     say "Copying rulebook/ -> $CONFIG_DIR/rulebook/"
     mkdir -p "$CONFIG_DIR/rulebook"
@@ -92,14 +179,16 @@ install_rulebook() {
 # rulebook CLI wrapper (installed by my-opencode-agent-config/install.sh)
 # Prefers bun (absolute path) because agent shell PATHs often lack python3.
 RB_DIR="$CONFIG_DIR/rulebook"
-BUN="/root/.bun/bin/bun"
+BUN="$BUN_BIN"
 
 if [ -x "\$BUN" ] && [ -f "\$RB_DIR/rulebook.ts" ]; then
   exec "\$BUN" "\$RB_DIR/rulebook.ts" "\$@"
+elif command -v bun >/dev/null 2>&1 && [ -f "\$RB_DIR/rulebook.ts" ]; then
+  exec "\$(command -v bun)" "\$RB_DIR/rulebook.ts" "\$@"
 elif command -v python3 >/dev/null 2>&1 && [ -f "\$RB_DIR/rulebook.py" ]; then
   exec python3 "\$RB_DIR/rulebook.py" "\$@"
 else
-  echo "rulebook: neither bun (\$BUN) nor python3 found, and/or rulebook files missing in \$RB_DIR" >&2
+  echo "rulebook: neither bun nor python3 found, and/or rulebook files missing in \$RB_DIR" >&2
   exit 1
 fi
 EOF
@@ -171,7 +260,8 @@ install_config() {
 # ---------------------------------------------------------------------------
 case "$MODE" in
   rulebook) install_rulebook ;;
-  config)   install_config ;;
+  config)   install_bun || warn "bun unavailable; config installed but MCP/rulebook will need bun"
+            install_config ;;
   # config first in full mode: installing rulebook first would create content in
   # CONFIG_DIR and make config-install treat the fresh dir as "existing config".
   full)     install_config; install_rulebook ;;
