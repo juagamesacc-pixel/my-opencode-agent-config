@@ -9,3 +9,6 @@ Thumbs.db
 # Temp / backup noise (keep explicit .bak files like opencode.jsonc.bak if present)
 *.tmp
 *.swp
+# Runtime data — regenerated on device (note MCP/CLI writes this live)
+note/note.db
+note/note.db-*

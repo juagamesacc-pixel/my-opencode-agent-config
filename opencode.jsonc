@@ -22,6 +22,15 @@
         "--mcp"
       ],
       "environment": {}
+    },
+    "note": {
+      "type": "local",
+      "command": [
+        "/root/.bun/bin/bun",
+        "/root/.config/opencode/note/note.ts",
+        "--mcp"
+      ],
+      "environment": {}
     }
   }
 }

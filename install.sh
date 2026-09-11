@@ -3,14 +3,16 @@
 # my-opencode-agent-config installer
 #
 # Usage:
-#   ./install.sh [rulebook|config|full] [--yes]
+#   ./install.sh [rulebook|note|config|full] [--yes]
 #
 #   rulebook   Provision bun (if missing) and install the rulebook CLI so
 #              `rulebook` is callable from anywhere
 #              (wrapper in ~/.local/bin or /usr/local/bin, plus bashrc PATH if needed).
+#   note       Install the note CLI/MCP tool so `note` is callable from anywhere
+#              (wrapper in ~/.local/bin or /usr/local/bin).
 #   config     Install the whole OpenCode config from this repo into
 #              ~/.config/opencode (backs up an existing config first).
-#   full       Do both rulebook + config. (default)
+#   full       Do note + rulebook + config. (default)
 #   --yes      Skip all interactive prompts.
 #
 # bun provisioning (runs automatically when bun is not already installed):
@@ -30,7 +32,7 @@ BIN_DIR=""
 
 for a in "$@"; do
   case "$a" in
-    rulebook|config|full) MODE="$a" ;;
+    rulebook|note|config|full) MODE="$a" ;;
     --yes|-y)             ASSUME_YES=1 ;;
     *) echo "Unknown arg: $a" >&2; exit 2 ;;
   esac
@@ -216,6 +218,56 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# note CLI/MCP install
+# ---------------------------------------------------------------------------
+install_note() {
+  if [ "$REPO_DIR" != "$CONFIG_DIR" ]; then
+    say "Copying note/ -> $CONFIG_DIR/note/"
+    mkdir -p "$CONFIG_DIR/note"
+    cp -f "$REPO_DIR"/note/note.ts    "$CONFIG_DIR/note/"
+    [ -f "$REPO_DIR/note/README.md"  ] && cp -f "$REPO_DIR"/note/README.md  "$CONFIG_DIR/note/" || true
+  else
+    say "Repo is already the config dir; using in-place note"
+  fi
+  [ -f "$CONFIG_DIR/note/note.ts" ] || die "note/note.ts not found in $CONFIG_DIR/note/"
+
+  # choose wrapper dir: prefer a dir already on PATH, else ~/.local/bin
+  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+    BIN_DIR=/usr/local/bin
+  else
+    BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
+  fi
+
+  local wrapper="$BIN_DIR/note"
+  cat > "$wrapper" <<EOF
+#!/usr/bin/env bash
+# note CLI wrapper (installed by my-opencode-agent-config/install.sh)
+# Prefers bun (absolute path) because agent shell PATHs often lack python3.
+NOTE_DIR="$CONFIG_DIR/note"
+BUN="${BUN_BIN:-/root/.bun/bin/bun}"
+
+if [ -x "\$BUN" ] && [ -f "\$NOTE_DIR/note.ts" ]; then
+  exec "\$BUN" "\$NOTE_DIR/note.ts" "\$@"
+elif command -v bun >/dev/null 2>&1 && [ -f "\$NOTE_DIR/note.ts" ]; then
+  exec "\$(command -v bun)" "\$NOTE_DIR/note.ts" "\$@"
+else
+  echo "note: bun not found and/or note files missing in \$NOTE_DIR" >&2
+  exit 1
+fi
+EOF
+  chmod +x "$wrapper"
+  say "Installed 'note' at $wrapper (bun-first)"
+
+  # post-install sanity
+  if command -v note >/dev/null 2>&1; then
+    say "OK: 'note' resolves to $(command -v note)"
+  else
+    warn "'note' not on current PATH yet — open a new shell (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # config install (from a fresh clone into ~/.config/opencode)
 # ---------------------------------------------------------------------------
 install_config() {
@@ -225,7 +277,7 @@ install_config() {
   fi
 
   local items=(opencode.jsonc opencode.jsonc.bak oh-my-opencode-slim.json tui.json \
-               package.json package-lock.json oh-my-opencode-slim skills rulebook \
+               package.json package-lock.json oh-my-opencode-slim skills rulebook note \
                .oh-my-opencode-slim .gitignore)
   local missing=()
 
@@ -271,10 +323,11 @@ install_config() {
 # ---------------------------------------------------------------------------
 case "$MODE" in
   rulebook) install_rulebook ;;
+  note)     install_note ;;
   config)   install_bun || warn "bun unavailable; config installed but MCP/rulebook will need bun"
             install_config ;;
   # config first in full mode: installing rulebook first would create content in
   # CONFIG_DIR and make config-install treat the fresh dir as "existing config".
-  full)     install_config; install_rulebook ;;
+  full)     install_config; install_note; install_rulebook ;;
 esac
 say "Done."

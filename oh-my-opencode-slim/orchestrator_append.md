@@ -72,6 +72,30 @@ For `porting` type projects, the plan **MUST additionally** include:
 2. **UI/UX parity checklist** — every screen, component, layout, visual style, color, spacing, font, icon, animation, interaction, and responsive breakpoint from the source must appear in the port. This is part of the artifact inventory.
 3. **Zero-diversion guarantee** — the plan must state explicitly: "No functionality changes, no UI/UX redesign, no modernization, no renaming for taste, no reordering of code." Every deviation from the source is a bug unless the user approves it in writing.
 
+## Notes Tool Doctrine (mandatory for ALL agents)
+
+The `note` MCP server (tools: `note`, `note_get`, `note_list`, `note_sessions`, `note_new_session`, `note_mark`; CLI: `note add/get/list/sessions/mark`) is the shared memory of every session. Use it for ALL notable things during work — this is mandatory, not optional:
+
+- `todo` — every todo item / todo list you prepare, as you prepare it
+- `question` — clarifying questions you ask or need to ask
+- `decision` — notable decisions and the reasoning
+- `diversion` — ANY deviation from plan/spec/rulebook/source, immediately when noticed
+- `status` — progress checkpoints
+- `risk` — blockers, risks, concerns
+- `finding` — audit/research/investigation results
+- `report` — your final conclusion / employee report when a task completes
+- `info` — anything else notable
+
+Every note should carry: `agent` = your own agent name; `project` = the project name; `source` = the current working source (dir+filename); `note_type`; `note`. Session routing and table creation are handled AUTOMATICALLY by the server (one table per agent per session; existing session tables are reused, new ones auto-created) — never think about tables or sessions; omit `session_id` to auto-reuse your agent's active session, pass it only to pin a specific one.
+
+**Hierarchy & visibility:** any note is readable by any eligible agent via `note {ID}` (note_get). Lower agents' notes are routinely read upward: sub-orchestrator reads its implementers' reports, the main orchestrator reads everything, and auditor/oracle/planner may read any notes in scope.
+
+**REPORT RELAY PROTOCOL (employee report — never skipped):**
+- On completing a task, save your conclusion as `note_type=report`, then report its note ID upward — do NOT paste the whole report into chat.
+- A leaf implementer (coder/fixer/designer/ui-designer/planner/researcher/auditor/oracle/explorer/librarian) working under a @sub-orchestrator does NOT message the main orchestrator directly. It reports the conclusion note ID to its @sub-orchestrator and asks the sub-orchestrator to relay it.
+- The @sub-orchestrator reads the implementer's conclusion via `note {ID}` (note_get), marks it `reported` (note_mark), folds the essence into its own structured report, and relays the note ID to the main orchestrator.
+- The main orchestrator reads any relayed conclusion by running `note {ID}` (note_get).
+
 ## Project Rulebook (mandatory for every project task)
 
 A SQLite rulebook defines how each type of project must be handled. Consult it BEFORE planning any project work.
