@@ -1,12 +1,41 @@
 # Orchestrator Project Rulebook
 
-SQLite database + query CLI that defines how the orchestrator handles every type of project.
+SQLite database + query tooling that defines how the orchestrator handles every type of project.
+Served to agents two ways: **native MCP tools** (preferred) and a **`rulebook` CLI** (fallback).
 
 ## Location
 
 - DB: `/root/.config/opencode/rulebook/rulebook.db`
-- CLI: `/root/.config/opencode/rulebook/rulebook.py`
-- Requires: `python3` (stdlib `sqlite3`, no downloads, no consent needed)
+- MCP server + CLI: `/root/.config/opencode/rulebook/rulebook.ts` (bun, zero deps, `bun:sqlite`)
+- Reference CLI (python3, offline): `/root/.config/opencode/rulebook/rulebook.py`
+- **Runtime:** bun at `/root/.bun/bin/bun`. Python is NOT required — agent shells often lack
+  `python3` on PATH, which is why the tool is bun-based and spawned via absolute path.
+
+## MCP integration
+
+Registered in `opencode.jsonc`:
+
+```jsonc
+"mcp": {
+  "rulebook": {
+    "type": "local",
+    "command": ["/root/.bun/bin/bun", "/root/.config/opencode/rulebook/rulebook.ts", "--mcp"],
+    "environment": {}
+  }
+}
+```
+
+Available tools (all agents with MCP access):
+
+| Tool | Purpose |
+|------|---------|
+| `rulebook_summary` | every rulebook with its tasks, by phase |
+| `rulebook_types` | the 7 classifications + LOC bounds |
+| `rulebook_classify` | LOC → type (+ optional `nature` override: porting/new_ui/new_no_ui/upgrade_vibe) → runbook |
+| `rulebook_playbook` | ordered phase runbook for a type |
+| `rulebook_rules` | runbook incl. violation consequences |
+| `rulebook_mandates` | must / must_not for a type (incl. cross-cutting) |
+| `rulebook_check` | integrity + coverage self-audit |
 
 ## Project types
 
@@ -23,17 +52,19 @@ SQLite database + query CLI that defines how the orchestrator handles every type
 ## Usage
 
 ```bash
-cd /root/.config/opencode/rulebook
+# CLI (bun-first; works without python3 on PATH)
+rulebook init                              # (re)build + seed DB (python3 CLI only, resets content)
+rulebook types                             # list types + LOC bounds
+rulebook summary                           # every rulebook with its tasks, by phase
+rulebook classify 5000                     # LOC → type + prints that type's runbook
+rulebook playbook big                      # ordered phases for a type
+rulebook rules medium                      # runbook incl. violation consequences
+rulebook mandates porting                  # must / must_not for a type (incl. cross-cutting)
+rulebook mandates porting --kind must_not
+rulebook check                             # integrity + coverage self-audit
 
-python3 rulebook.py init                    # (re)build + seed DB (resets content)
-python3 rulebook.py types                   # list types + LOC bounds
-python3 rulebook.py summary                 # every rulebook with its tasks, by phase
-python3 rulebook.py classify 5000           # LOC → type + prints that type's runbook
-python3 rulebook.py playbook big            # ordered phases for a type
-python3 rulebook.py rules medium            # runbook incl. violation consequences
-python3 rulebook.py mandates porting        # must / must_not for a type (incl. cross-cutting)
-python3 rulebook.py mandates porting --kind must_not
-python3 rulebook.py check                   # integrity + coverage self-audit
+# or directly:
+/root/.bun/bin/bun /root/.config/opencode/rulebook/rulebook.ts <cmd>
 ```
 
 ## Orchestrator workflow
@@ -52,5 +83,6 @@ python3 rulebook.py check                   # integrity + coverage self-audit
 ## Maintenance
 
 - Edits to doctrine: edit data lists in `rulebook.py` (`PROJECT_TYPES`, `G()` calls, `M()` calls),
-  then re-run `python3 rulebook.py init && python3 rulebook.py check`.
+  then rebuild + verify: `python3 rulebook.py init && python3 rulebook.py check` (needs python3
+  on that machine), or edit the DB directly with `bun:sqlite` / sqlite3.
 - Thresholds live in `meta` (`loc_small_max`, `loc_medium_max`).

@@ -67,17 +67,19 @@ install_rulebook() {
   if [ "$REPO_DIR" != "$CONFIG_DIR" ]; then
     say "Copying rulebook/ -> $CONFIG_DIR/rulebook/"
     mkdir -p "$CONFIG_DIR/rulebook"
-    cp -f "$REPO_DIR"/rulebook/rulebook.py   "$CONFIG_DIR/rulebook/"
+    cp -f "$REPO_DIR"/rulebook/rulebook.ts    "$CONFIG_DIR/rulebook/"
+    cp -f "$REPO_DIR"/rulebook/rulebook.py    "$CONFIG_DIR/rulebook/"
     [ -f "$REPO_DIR/rulebook/README.md"  ] && cp -f "$REPO_DIR"/rulebook/README.md  "$CONFIG_DIR/rulebook/" || true
     [ -f "$REPO_DIR/rulebook/rulebook.db" ] && cp -f "$REPO_DIR"/rulebook/rulebook.db "$CONFIG_DIR/rulebook/" || true
   else
     say "Repo is already the config dir; using in-place rulebook"
   fi
-  local src="$CONFIG_DIR/rulebook/rulebook.py"
-  [ -f "$src" ] || die "rulebook.py not found at $src"
+  local ts="$CONFIG_DIR/rulebook/rulebook.ts"
+  local py="$CONFIG_DIR/rulebook/rulebook.py"
+  [ -f "$ts" ] || [ -f "$py" ] || die "rulebook files not found in $CONFIG_DIR/rulebook/"
 
   # choose wrapper dir: prefer a dir already on PATH, else ~/.local/bin
-  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ] && command -v python3 >/dev/null; then
+  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
     BIN_DIR=/usr/local/bin
   else
     BIN_DIR="$HOME/.local/bin"
@@ -88,10 +90,21 @@ install_rulebook() {
   cat > "$wrapper" <<EOF
 #!/usr/bin/env bash
 # rulebook CLI wrapper (installed by my-opencode-agent-config/install.sh)
-exec python3 "$src" "\$@"
+# Prefers bun (absolute path) because agent shell PATHs often lack python3.
+RB_DIR="$CONFIG_DIR/rulebook"
+BUN="/root/.bun/bin/bun"
+
+if [ -x "\$BUN" ] && [ -f "\$RB_DIR/rulebook.ts" ]; then
+  exec "\$BUN" "\$RB_DIR/rulebook.ts" "\$@"
+elif command -v python3 >/dev/null 2>&1 && [ -f "\$RB_DIR/rulebook.py" ]; then
+  exec python3 "\$RB_DIR/rulebook.py" "\$@"
+else
+  echo "rulebook: neither bun (\$BUN) nor python3 found, and/or rulebook files missing in \$RB_DIR" >&2
+  exit 1
+fi
 EOF
   chmod +x "$wrapper"
-  say "Installed 'rulebook' at $wrapper"
+  say "Installed 'rulebook' at $wrapper (bun-first)"
   ensure_bashrc
 
   # post-install sanity

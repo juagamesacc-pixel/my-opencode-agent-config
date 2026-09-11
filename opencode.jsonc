@@ -12,5 +12,16 @@
     }
   },
   "subagent_depth": 2,
-  "lsp": true
+  "lsp": true,
+  "mcp": {
+    "rulebook": {
+      "type": "local",
+      "command": [
+        "/root/.bun/bin/bun",
+        "/root/.config/opencode/rulebook/rulebook.ts",
+        "--mcp"
+      ],
+      "environment": {}
+    }
+  }
 }

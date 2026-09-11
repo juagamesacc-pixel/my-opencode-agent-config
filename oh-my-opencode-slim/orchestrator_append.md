@@ -41,13 +41,14 @@ Enforcement:
 
 A SQLite rulebook defines how each type of project must be handled. Consult it BEFORE planning any project work.
 
-- **DB + CLI:** `/root/.config/opencode/rulebook/rulebook.py` (stdlib python3; no downloads required)
-- **Query via bash:**
-  - `python3 /root/.config/opencode/rulebook/rulebook.py summary` → every rulebook with its tasks, by phase
-  - `python3 /root/.config/opencode/rulebook/rulebook.py classify <LOC>` → size type + runbook
-  - `python3 /root/.config/opencode/rulebook/rulebook.py playbook <type>` → ordered phases
-  - `python3 /root/.config/opencode/rulebook/rulebook.py mandates <type>` → must / must_not
-  - `python3 /root/.config/opencode/rulebook/rulebook.py check` → integrity
+- **MCP tools (preferred):** the rulebook is exposed as native MCP tools to ALL agents (server name `rulebook`): `rulebook_summary`, `rulebook_types`, `rulebook_classify`, `rulebook_playbook`, `rulebook_rules`, `rulebook_mandates`, `rulebook_check`. Call these directly — do NOT shell out.
+- **CLI fallback (if MCP tools are unavailable):** `rulebook <cmd>` is installed on PATH (`/usr/local/bin/rulebook`, bun-first, works even when `python3` is absent):
+  - `rulebook summary` → every rulebook with its tasks, by phase
+  - `rulebook classify <LOC>` → size type + runbook
+  - `rulebook playbook <type>` → ordered phases
+  - `rulebook mandates <type>` → must / must_not
+  - `rulebook check` → integrity
+  - Never invoke `python3 .../rulebook.py` directly — agent shells may lack python3 on PATH.
 - **Types:** `small` (≤1000 LOC), `medium` (1001–20000), `big` (>20000), `porting`, `new_ui`, `new_no_ui`, `upgrade_vibe`.
 - **Classification rule:** classify by LOC, then override by nature — anything that is a cross-language port is `porting` regardless of LOC; "upgrade/fix my existing app" is `upgrade_vibe`; any user-visible surface makes it `new_ui`.
 - **Hard rules:**
