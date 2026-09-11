@@ -1,0 +1,11 @@
+# Dependencies — regenerable via `npm install` from package.json/package-lock.json
+node_modules/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.log
+
+# Temp / backup noise (keep explicit .bak files like opencode.jsonc.bak if present)
+*.tmp
+*.swp
