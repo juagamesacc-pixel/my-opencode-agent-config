@@ -16,7 +16,9 @@
 # bun provisioning (runs automatically when bun is not already installed):
 #   - if `bun` is already on PATH or in a standard location -> no download, reuse it
 #   - else if bin/bun-linux-aarch64-v1.4.2.tar.gz is bundled in this repo -> extract, no download
-#   - else download the tarball from GitHub releases (prompts for consent; ~35 MB)
+#   - else download the tarball from GitHub raw (prompts for consent; ~35 MB).
+#     NOTE: repo is private, so the download needs a GitHub token (gh auth token
+#     or $GITHUB_TOKEN); otherwise warn and skip.
 #
 set -euo pipefail
 
@@ -84,7 +86,11 @@ install_bun() {
     tarball_src="$REPO_DIR/bin/$BUN_TARBALL"
     say "Using bundled bun tarball from this repo (no download): bin/$BUN_TARBALL"
   else
-    # fallback: download from GitHub releases
+    # fallback: download from GitHub raw (private repo needs a token)
+    local gh_token="${GITHUB_TOKEN:-}"
+    if [ -z "$gh_token" ] && command -v gh >/dev/null 2>&1; then
+      gh_token="$(gh auth token 2>/dev/null || true)"
+    fi
     if command -v curl >/dev/null 2>&1; then
       local dl=(curl -fL --progress-bar -o "$BUN_TARBALL" "$BUN_REPO_URL")
     elif command -v wget >/dev/null 2>&1; then
@@ -92,7 +98,12 @@ install_bun() {
     else
       die "Neither curl nor wget available; cannot download bun. Get it from https://bun.sh/docs/installation"
     fi
-    if confirm "Download bun ${BUN_VERSION} from GitHub releases (~35 MB, mobile-data consent needed)? [y/N]"; then
+    if [ -n "$gh_token" ]; then
+      dl+=(-H "Authorization: token $gh_token")
+    else
+      warn "No GitHub token found (\$GITHUB_TOKEN or gh auth) — private-repo download will likely fail."
+    fi
+    if confirm "Download bun ${BUN_VERSION} from GitHub raw (~35 MB, mobile-data consent needed)? [y/N]"; then
       "${dl[@]}"
       tarball_src="$BUN_TARBALL"
     else
