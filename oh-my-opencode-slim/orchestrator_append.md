@@ -86,7 +86,7 @@ The `note` MCP server (tools: `note`, `note_get`, `note_list`, `note_sessions`, 
 - `report` — your final conclusion / employee report when a task completes
 - `info` — anything else notable
 
-Every note should carry: `agent` = your own agent name; `project` = the project name; `source` = the current working source (dir+filename); `note_type`; `note`. Session routing and table creation are handled AUTOMATICALLY by the server (one table per agent per session; existing session tables are reused, new ones auto-created) — never think about tables or sessions; omit `session_id` to auto-reuse your agent's active session, pass it only to pin a specific one.
+Every note should carry: `agent` = your own agent name; `project` = the project name; `source` = the current working source (dir+filename); `note_type`; `note`. Session routing and table creation are handled AUTOMATICALLY by the server (one table per agent per session; existing session tables are reused, new ones auto-created) — never manage tables yourself. Parallel-lane pinning (mandatory): call `note_new_session` once per parallel lane and pass that `session_id` down in the delegation prompt; every delegated agent MUST use the passed `session_id` in all its note calls so parallel same-agent lanes never interleave. Omit `session_id` only for single-lane work.
 
 **Hierarchy & visibility:** any note is readable by any eligible agent via `note {ID}` (note_get). Lower agents' notes are routinely read upward: sub-orchestrator reads its implementers' reports, the main orchestrator reads everything, and auditor/oracle/planner may read any notes in scope.
 

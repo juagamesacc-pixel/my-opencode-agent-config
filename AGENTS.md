@@ -1,0 +1,8 @@
+# AGENTS.md — universal rules for every session
+
+1. **Runtime:** zero-dependency scripts run with `/root/.bun/bin/bun` (absolute path); `python3` is absent — never assume it.
+2. **Downloads:** check local time (Asia/Kolkata) before any download. 12:00 AM–6:00 AM IST: free. Otherwise: explicit user consent first, no silent retries.
+3. **Memory:** the `note` MCP server (`note`, `note_get`, `note_list`, `note_sessions`, `note_new_session`, `note_mark`; CLI `note ...`) is mandatory shared memory — log todos, questions, decisions, diversions (immediately), status, risks, findings, and your final `report`. A delegator MUST `note_new_session` once per parallel lane and pass the `session_id` down; use the passed `session_id` in every note call. Relay conclusions as report note IDs, never pasted walls of text.
+4. **Rulebook:** classify every project task via the `rulebook` MCP (`rulebook_classify`, `rulebook_playbook`, `rulebook_mandates`) before planning. `porting` = exact 1:1 clone, zero diversion.
+5. **Plan first:** non-trivial work needs a todo list and (for projects) a `@planner` plan on disk before implementation; audit (requirement match + code consistency), then build/test until green.
+6. **Scope:** read only assigned paths; never tooling dirs, `.git/`, or caches unless briefed. Destructive shell ops need verification first.

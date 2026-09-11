@@ -12,3 +12,8 @@ Thumbs.db
 # Runtime data — regenerated on device (note MCP/CLI writes this live)
 note/note.db
 note/note.db-*
+
+# Runtime/workspace state (skills + sqlite journals) — never commit
+.slim/
+*.db-wal
+*.db-shm

@@ -11,8 +11,43 @@
       "disable": true
     }
   },
-  "subagent_depth": 2,
+  "subagent_depth": 3,
   "lsp": true,
+  "snapshot": false,
+  "autoupdate": "notify",
+  "share": "disabled",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "watcher": {
+    "ignore": [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/.cache/**",
+      "**/dist/**",
+      "**/build/**"
+    ]
+  },
+  "permission": {
+    "edit": {
+      "**/.env": "deny",
+      "**/id_rsa*": "deny",
+      "**/*.pem": "deny",
+      "**/*.key": "deny"
+    },
+    "bash": {
+      "rm -rf /*": "deny",
+      "git push --force*": "deny",
+      "git reset --hard*": "deny"
+    },
+    "external_directory": {
+      "~/.ssh/**": "deny",
+      "**/id_rsa*": "deny"
+    }
+  },
+  "experimental": {
+    "mcp_timeout": 30000
+  },
   "mcp": {
     "rulebook": {
       "type": "local",
@@ -21,7 +56,10 @@
         "/root/.config/opencode/rulebook/rulebook.ts",
         "--mcp"
       ],
-      "environment": {}
+      "environment": {
+        "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/root"
+      }
     },
     "note": {
       "type": "local",
@@ -30,7 +68,10 @@
         "/root/.config/opencode/note/note.ts",
         "--mcp"
       ],
-      "environment": {}
+      "environment": {
+        "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/root"
+      }
     }
   }
 }

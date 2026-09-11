@@ -55,14 +55,15 @@ export const NOTE_STATUSES = ["open", "reported", "done"] as const;
 function db(): Database {
   const d = new Database(DB_PATH);
   d.run("PRAGMA journal_mode=WAL");
-  d.run("PRAGMA busy_timeout=3000");
-  d.run(`CREATE TABLE IF NOT EXISTS _meta (
-    key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
-  d.run(`CREATE TABLE IF NOT EXISTS _sessions (
+  d.run("PRAGMA synchronous=NORMAL");
+  d.run("PRAGMA busy_timeout=10000");
+  withRetry(() => d.run(`CREATE TABLE IF NOT EXISTS _meta (
+    key TEXT PRIMARY KEY, value TEXT NOT NULL)`));
+  withRetry(() => d.run(`CREATE TABLE IF NOT EXISTS _sessions (
     agent      TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
-    opened_at  TEXT NOT NULL)`);
-  d.run(`CREATE TABLE IF NOT EXISTS _registry (
+    opened_at  TEXT NOT NULL)`));
+  withRetry(() => d.run(`CREATE TABLE IF NOT EXISTS _registry (
     id            TEXT PRIMARY KEY,
     agent         TEXT NOT NULL,
     session_id    TEXT NOT NULL,
@@ -71,7 +72,7 @@ function db(): Database {
     note_type     TEXT NOT NULL,
     status        TEXT NOT NULL,
     note_summary  TEXT NOT NULL,
-    created_at    TEXT NOT NULL)`);
+    created_at    TEXT NOT NULL)`));
   return d;
 }
 
@@ -94,7 +95,42 @@ function sanitize(s: string): string {
 }
 
 function tableName(agent: string, session: string): string {
-  return `n_${sanitize(agent)}_${sanitize(session)}`;
+  const tbl = `n_${sanitize(agent)}_${sanitize(session)}`;
+  validateTableName(tbl);
+  return tbl;
+}
+
+function validateTableName(tbl: string): void {
+  if (!/^n_[a-z0-9_]+$/.test(tbl)) {
+    throw new Error(`invalid table name '${tbl}' — must match ^n_[a-z0-9_]+$`);
+  }
+}
+
+function busySleep(ms: number): void {
+  try {
+    // @ts-ignore
+    if (typeof Bun !== "undefined" && typeof (Bun as any).sleepSync === "function") {
+      (Bun as any).sleepSync(ms);
+      return;
+    }
+  } catch {}
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function withRetry<T>(fn: () => T, retries = 3): T {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      return fn();
+    } catch (e: any) {
+      lastErr = e;
+      const msg = String(e?.message ?? e ?? "");
+      if (!/busy|SQLITE_BUSY|locked/i.test(msg)) throw e;
+      if (attempt > retries) break;
+      busySleep(50 * attempt);
+    }
+  }
+  throw lastErr;
 }
 
 /** Resolve which (session_id, tbl) a note belongs to — fully automatic. */
@@ -110,13 +146,14 @@ function resolveSession(d: Database, agent: string, sessionId?: string):
     { session_id: string } | undefined;
   if (cur) return { sessionId: cur.session_id, tbl: tableName(agentKey, cur.session_id) };
   const sid = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  d.query("INSERT OR REPLACE INTO _sessions (agent, session_id, opened_at) VALUES (?,?,?)")
-    .run(agentKey, sid, nowIso());
+  withRetry(() => d.query("INSERT OR REPLACE INTO _sessions (agent, session_id, opened_at) VALUES (?,?,?)")
+    .run(agentKey, sid, nowIso()));
   return { sessionId: sid, tbl: tableName(agentKey, sid) };
 }
 
 function ensureTable(d: Database, tbl: string): void {
-  d.run(`CREATE TABLE IF NOT EXISTS ${tbl} (
+  validateTableName(tbl);
+  withRetry(() => d.run(`CREATE TABLE IF NOT EXISTS "${tbl}" (
     id          TEXT PRIMARY KEY,
     agent       TEXT NOT NULL,
     session_id  TEXT NOT NULL,
@@ -126,7 +163,7 @@ function ensureTable(d: Database, tbl: string): void {
     created_at  TEXT NOT NULL,
     note_type   TEXT NOT NULL,
     note        TEXT NOT NULL,
-    status      TEXT NOT NULL)`);
+    status      TEXT NOT NULL)`));
 }
 
 export function addNote(args: {
@@ -167,14 +204,15 @@ export function addNote(args: {
 
     const id = randomUUID();
     const ts = nowIso();
-    d.query(`INSERT INTO ${tbl} (id, agent, session_id, project, source_dir, source_file,
+    validateTableName(tbl);
+    withRetry(() => d.query(`INSERT INTO "${tbl}" (id, agent, session_id, project, source_dir, source_file,
              created_at, note_type, note, status) VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .run(id, agentKey, sessionId, project, sourceDir, sourceFile, ts, type,
-        String(args.note).trim(), status);
-    d.query(`INSERT INTO _registry (id, agent, session_id, tbl, project, note_type, status,
+        String(args.note).trim(), status));
+    withRetry(() => d.query(`INSERT INTO _registry (id, agent, session_id, tbl, project, note_type, status,
              note_summary, created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
       .run(id, agentKey, sessionId, tbl, project, type, status,
-        String(args.note).trim().slice(0, 120), ts);
+        String(args.note).trim().slice(0, 120), ts));
     return { id, agent: agentKey, session_id: sessionId, tbl };
   } finally {
     d.close();
@@ -186,7 +224,8 @@ export function getNote(id: string): any | null {
   try {
     const reg = d.query("SELECT * FROM _registry WHERE id=?").get(id) as any | undefined;
     if (!reg) return null;
-    const row = d.query(`SELECT * FROM ${reg.tbl} WHERE id=?`).get(id) as any | undefined;
+    validateTableName(reg.tbl);
+    const row = d.query(`SELECT * FROM "${reg.tbl}" WHERE id=?`).get(id) as any | undefined;
     return row ?? null;
   } finally {
     d.close();
@@ -239,8 +278,8 @@ export function newSession(agent: string): { agent: string; session_id: string; 
   try {
     const agentKey = sanitize(agent) || "unknown";
     const sid = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    d.query("INSERT OR REPLACE INTO _sessions (agent, session_id, opened_at) VALUES (?,?,?)")
-      .run(agentKey, sid, nowIso());
+    withRetry(() => d.query("INSERT OR REPLACE INTO _sessions (agent, session_id, opened_at) VALUES (?,?,?)")
+      .run(agentKey, sid, nowIso()));
     return { agent: agentKey, session_id: sid, created: true };
   } finally {
     d.close();
@@ -256,8 +295,9 @@ export function markStatus(id: string, status: string): { ok: boolean; message: 
   try {
     const reg = d.query("SELECT * FROM _registry WHERE id=?").get(id) as any | undefined;
     if (!reg) return { ok: false, message: `no note with id ${id}` };
-    d.query(`UPDATE ${reg.tbl} SET status=? WHERE id=?`).run(st, id);
-    d.query("UPDATE _registry SET status=? WHERE id=?").run(st, id);
+    validateTableName(reg.tbl);
+    withRetry(() => d.query(`UPDATE "${reg.tbl}" SET status=? WHERE id=?`).run(st, id));
+    withRetry(() => d.query("UPDATE _registry SET status=? WHERE id=?").run(st, id));
     return { ok: true, message: `note ${id} marked ${st}` };
   } finally {
     d.close();

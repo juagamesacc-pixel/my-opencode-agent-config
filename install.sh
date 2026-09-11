@@ -134,24 +134,26 @@ install_bun() {
 }
 
 # ---------------------------------------------------------------------------
-# bashrc: idempotently ensure the background-subagents flag (+ PATH for ~/.local/bin)
+# shell env: idempotently ensure the background-subagents flag (+ PATH for ~/.local/bin)
+# Writes to BOTH ~/.bashrc and ~/.profile so login/non-bash shells get it too.
 # ---------------------------------------------------------------------------
-ensure_bashrc() {
-  local rc="$HOME/.bashrc"
-  [ -f "$rc" ] || touch "$rc"
-  local changed=0
+ensure_shell_env() {
+  for rc in "$HOME/.bashrc" "$HOME/.profile"; do
+    [ -f "$rc" ] || touch "$rc"
+    local changed=0
 
-  if ! grep -qF "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS" "$rc"; then
-    printf '\n# opencode: enable background subagent lanes\n' >> "$rc"
-    printf 'export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true\n' >> "$rc"
-    changed=1
-  fi
-  if [ "$BIN_DIR" = "$HOME/.local/bin" ] && ! grep -qF "export PATH=\$HOME/.local/bin" "$rc" 2>/dev/null && ! grep -qE "PATH=.*\$HOME/.local/bin" "$rc" 2>/dev/null; then
-    printf '\n# opencode: rulebook wrapper dir on PATH\n' >> "$rc"
-    printf 'export PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
-    changed=1
-  fi
-  [ "$changed" -eq 1 ] && say "bashrc updated ($rc)" || say "bashrc already configured"
+    if ! grep -qF "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS" "$rc"; then
+      printf '\n# opencode: enable background subagent lanes\n' >> "$rc"
+      printf 'export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true\n' >> "$rc"
+      changed=1
+    fi
+    if [ "$BIN_DIR" = "$HOME/.local/bin" ] && ! grep -qF "export PATH=\$HOME/.local/bin" "$rc" 2>/dev/null && ! grep -qE "PATH=.*\$HOME/.local/bin" "$rc" 2>/dev/null; then
+      printf '\n# opencode: rulebook wrapper dir on PATH\n' >> "$rc"
+      printf 'export PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+      changed=1
+    fi
+    [ "$changed" -eq 1 ] && say "shell env updated ($rc)" || say "shell env already configured ($rc)"
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -187,33 +189,54 @@ install_rulebook() {
   fi
 
   local wrapper="$BIN_DIR/rulebook"
-  cat > "$wrapper" <<EOF
+  # Quoted heredoc: $CONFIG_DIR / $BUN_BIN are NOT baked in at install time.
+  # The wrapper resolves the config dir and bun binary at RUNTIME so it keeps
+  # working after a proot reinstall or $HOME change.
+  cat > "$wrapper" <<'WRAPPER_EOF'
 #!/usr/bin/env bash
 # rulebook CLI wrapper (installed by my-opencode-agent-config/install.sh)
 # Prefers bun (absolute path) because agent shell PATHs often lack python3.
+# All paths resolve at RUNTIME — nothing is baked in at install time.
+CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 RB_DIR="$CONFIG_DIR/rulebook"
-BUN="$BUN_BIN"
 
-if [ -x "\$BUN" ] && [ -f "\$RB_DIR/rulebook.ts" ]; then
-  exec "\$BUN" "\$RB_DIR/rulebook.ts" "\$@"
-elif command -v bun >/dev/null 2>&1 && [ -f "\$RB_DIR/rulebook.ts" ]; then
-  exec "\$(command -v bun)" "\$RB_DIR/rulebook.ts" "\$@"
-elif command -v python3 >/dev/null 2>&1 && [ -f "\$RB_DIR/rulebook.py" ]; then
-  exec python3 "\$RB_DIR/rulebook.py" "\$@"
+resolve_bun() {
+  # 1) explicit env override (set by install.sh when it provisioned bun)
+  if [ -n "${BUN_BIN:-}" ] && [ -x "$BUN_BIN" ]; then echo "$BUN_BIN"; return 0; fi
+  # 2) bun on PATH
+  if command -v bun >/dev/null 2>&1; then command -v bun; return 0; fi
+  # 3) standard install locations
+  for cand in "$HOME/.bun/bin/bun" /root/.bun/bin/bun /usr/local/bin/bun /usr/bin/bun /opt/bun/bin/bun; do
+    if [ -x "$cand" ]; then echo "$cand"; return 0; fi
+  done
+  return 1
+}
+
+if BUN="$(resolve_bun)" && [ -f "$RB_DIR/rulebook.ts" ]; then
+  exec "$BUN" "$RB_DIR/rulebook.ts" "$@"
+elif command -v python3 >/dev/null 2>&1 && [ -f "$RB_DIR/rulebook.py" ]; then
+  exec python3 "$RB_DIR/rulebook.py" "$@"
 else
-  echo "rulebook: neither bun nor python3 found, and/or rulebook files missing in \$RB_DIR" >&2
+  echo "rulebook: neither bun nor python3 found, and/or rulebook files missing in $RB_DIR" >&2
   exit 1
 fi
-EOF
+WRAPPER_EOF
   chmod +x "$wrapper"
-  say "Installed 'rulebook' at $wrapper (bun-first)"
-  ensure_bashrc
+  say "Installed 'rulebook' at $wrapper (bun-first, runtime-resolved)"
+  ensure_shell_env
 
   # post-install sanity
   if command -v rulebook >/dev/null 2>&1; then
     say "OK: 'rulebook' resolves to $(command -v rulebook)"
   else
-    warn "'rulebook' not on current PATH yet — open a new shell (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")"
+    warn "'rulebook' not on current PATH yet — open a new shell (or run: export PATH=\"$HOME/.local/bin:$PATH\")"
+  fi
+
+  # preflight: warn-only, never aborts install
+  if ! "$wrapper" check >/dev/null 2>&1; then
+    warn "preflight: '$wrapper check' did not pass — run it manually to see why"
+  else
+    say "preflight: rulebook check PASS"
   fi
 }
 
@@ -240,30 +263,47 @@ install_note() {
   fi
 
   local wrapper="$BIN_DIR/note"
-  cat > "$wrapper" <<EOF
+  # Quoted heredoc: nothing baked in at install time — runtime resolution only.
+  cat > "$wrapper" <<'WRAPPER_EOF'
 #!/usr/bin/env bash
 # note CLI wrapper (installed by my-opencode-agent-config/install.sh)
 # Prefers bun (absolute path) because agent shell PATHs often lack python3.
+# All paths resolve at RUNTIME — nothing is baked in at install time.
+CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 NOTE_DIR="$CONFIG_DIR/note"
-BUN="${BUN_BIN:-/root/.bun/bin/bun}"
 
-if [ -x "\$BUN" ] && [ -f "\$NOTE_DIR/note.ts" ]; then
-  exec "\$BUN" "\$NOTE_DIR/note.ts" "\$@"
-elif command -v bun >/dev/null 2>&1 && [ -f "\$NOTE_DIR/note.ts" ]; then
-  exec "\$(command -v bun)" "\$NOTE_DIR/note.ts" "\$@"
+resolve_bun() {
+  if [ -n "${BUN_BIN:-}" ] && [ -x "$BUN_BIN" ]; then echo "$BUN_BIN"; return 0; fi
+  if command -v bun >/dev/null 2>&1; then command -v bun; return 0; fi
+  for cand in "$HOME/.bun/bin/bun" /root/.bun/bin/bun /usr/local/bin/bun /usr/bin/bun /opt/bun/bin/bun; do
+    if [ -x "$cand" ]; then echo "$cand"; return 0; fi
+  done
+  return 1
+}
+
+if BUN="$(resolve_bun)" && [ -f "$NOTE_DIR/note.ts" ]; then
+  exec "$BUN" "$NOTE_DIR/note.ts" "$@"
 else
-  echo "note: bun not found and/or note files missing in \$NOTE_DIR" >&2
+  echo "note: bun not found and/or note files missing in $NOTE_DIR" >&2
   exit 1
 fi
-EOF
+WRAPPER_EOF
   chmod +x "$wrapper"
-  say "Installed 'note' at $wrapper (bun-first)"
+  say "Installed 'note' at $wrapper (bun-first, runtime-resolved)"
+  ensure_shell_env
 
   # post-install sanity
   if command -v note >/dev/null 2>&1; then
     say "OK: 'note' resolves to $(command -v note)"
   else
-    warn "'note' not on current PATH yet — open a new shell (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")"
+    warn "'note' not on current PATH yet — open a new shell (or run: export PATH=\"$HOME/.local/bin:$PATH\")"
+  fi
+
+  # preflight: warn-only, never aborts install
+  if ! "$wrapper" check >/dev/null 2>&1; then
+    warn "preflight: '$wrapper check' did not pass — run it manually to see why"
+  else
+    say "preflight: note check PASS"
   fi
 }
 
@@ -316,7 +356,7 @@ install_config() {
     fi
   fi
 
-  ensure_bashrc
+  ensure_shell_env
   say "Config installed at $CONFIG_DIR"
 }
 
