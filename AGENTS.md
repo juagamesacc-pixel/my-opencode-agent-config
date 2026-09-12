@@ -6,3 +6,4 @@
 4. **Rulebook:** classify every project task via the `rulebook` MCP (`rulebook_classify`, `rulebook_playbook`, `rulebook_mandates`) before planning. `porting` = exact 1:1 clone, zero diversion.
 5. **Plan first:** non-trivial work needs a todo list and (for projects) a `@planner` plan on disk before implementation; audit (requirement match + code consistency), then build/test until green.
 6. **Scope:** read only assigned paths; never tooling dirs, `.git/`, or caches unless briefed. Destructive shell ops need verification first.
+7. **Study notes (SPECIAL lane):** all study-notes content (ExNotes etc.) goes through the SPECIAL `notes-scribe` agent (`agents/notes-scribe.md`) — source-grounded briefs only (exact sources + owned outputs + template + tests + note `session_id`), never coder-style speed-first prompts. Coder lanes (`fixer`/`coder`) must not write or edit notes files; their drafts are untrusted input until a scribe audits them.
