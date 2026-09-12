@@ -7,7 +7,9 @@
 // Research (verified 2026-09-12 from README + AndroidManifest + IntentHandler.kt):
 //   action : com.github.cvzi.screenshottile.SCREENSHOT
 //   package: com.github.cvzi.screenshottile (receiver exported=true, open broadcast)
-//   command: am broadcast -a com.github.cvzi.screenshottile.SCREENSHOT -e secret '<PW>' com.github.cvzi.screenshottile
+//   command: am broadcast --user 0 -a com.github.cvzi.screenshottile.SCREENSHOT -e secret '<PW>' com.github.cvzi.screenshottile
+//   (--user 0 is required: Termux am defaults to user -2, which Android 14
+//   rejects with SecurityException/INTERACT_ACROSS_USERS)
 //   extras : secret (String, REQUIRED — set in app Settings), partial (optional bool/"true")
 //   saves  : Pictures/Screenshots/Screenshot_yyyy-MM-dd_HH-mm-ss.png (default)
 //   works from unrooted Termux/proot shells; no su/Shizuku needed.
@@ -175,7 +177,7 @@ function opTake(opts: { secret?: string; partial?: boolean; copy?: boolean; wait
   const waitMs = opts.waitMs ?? 15000;
   const before = newestSet(dir);
 
-  const args = ["broadcast", "-a", ACTION, "-e", "secret", secret];
+  const args = ["broadcast", "--user", "0", "-a", ACTION, "-e", "secret", secret];
   if (opts.partial) args.push("--ez", "partial", "true");
   args.push(PACKAGE);
   const r = Bun.spawnSync([am, ...args]);

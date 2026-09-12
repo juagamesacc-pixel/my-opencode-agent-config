@@ -13,8 +13,9 @@ existing device screenshots into the agent working dir (`<cwd>/ss/`).
 
 ## Tools (MCP server `screenshot`, also CLI)
 
-- `screenshot_take` — `am broadcast -a com.github.cvzi.screenshottile.SCREENSHOT
+- `screenshot_take` — `am broadcast --user 0 -a com.github.cvzi.screenshottile.SCREENSHOT
   -e secret '<pw>' com.github.cvzi.screenshottile`
+  (`--user 0` is required — Termux `am` defaults to user -2, rejected on Android 14)
   (optional `partial: true` opens the area selector). Polls
   `/sdcard/Pictures/Screenshots` for the new PNG, copies it to `<cwd>/ss/`.
 - `screenshot_read {count}` — copies the latest N (default 1) existing PNGs
