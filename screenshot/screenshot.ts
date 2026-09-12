@@ -17,6 +17,8 @@
 // Usage:
 //   screenshot take [--secret PW] [--partial] [--no-copy] [--wait-ms N]
 //   screenshot read [count]            # copy latest N (default 1) into ./ss/
+//   screenshot app <package> [--activity <pkg>/.Activity] [--wait-s N] [--secret PW] [--no-copy]
+//                                      # open app, wait, capture, back to Termux
 //   screenshot list [count]            # list latest device screenshots (no copy)
 //   screenshot check                   # am binary + screenshot dir sanity (RESULT: PASS/FAIL)
 //   screenshot --mcp                   # run as MCP server (stdio JSON-RPC)
@@ -36,13 +38,15 @@ const path = await import("node:path");
 const os = await import("node:os");
 
 // ---------------------------------------------------------------- helpers
-function whichAm(): string | undefined {
+const TERMUX_PKG = "com.termux";
+const TERMUX_FALLBACK = "com.termux/.app.TermuxActivity";
+
+function whichBin(name: string, extra: string[]): string | undefined {
   const cands = [
-    process.env.AM_BIN,
-    "am",
-    "/data/data/com.termux/files/usr/bin/am",
-    "/system/bin/am",
-    "/system/xbin/am",
+    process.env[name === "am" ? "AM_BIN" : "CMD_BIN"],
+    name,
+    `/data/data/com.termux/files/usr/bin/${name}`,
+    ...extra,
   ].filter(Boolean) as string[];
   for (const c of cands) {
     if (c.includes("/")) {
@@ -57,6 +61,36 @@ function whichAm(): string | undefined {
     }
   }
   return undefined;
+}
+
+function whichAm(): string | undefined {
+  return whichBin("am", ["/system/bin/am", "/system/xbin/am"]);
+}
+
+function whichCmd(): string | undefined {
+  return whichBin("cmd", ["/system/bin/cmd"]);
+}
+
+// Resolve a package's launcher component via the package manager.
+// Returns e.g. "com.foo/.activities.MainActivity" or undefined.
+function resolveLauncher(pkg: string): string | undefined {
+  const cmd = whichCmd();
+  if (!cmd) return undefined;
+  const r = Bun.spawnSync([cmd, "package", "resolve-activity", "--user", "0", "--brief", pkg]);
+  if (r.exitCode !== 0) return undefined;
+  const lines = r.stdout.toString().trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  const comp = lines[lines.length - 1];
+  return comp && comp.includes("/") ? comp : undefined;
+}
+
+function amStart(component: string): { ok: boolean; msg: string } {
+  const am = whichAm();
+  if (!am) return { ok: false, msg: "no 'am' binary found (set AM_BIN)" };
+  const r = Bun.spawnSync([am, "start", "--user", "0", "-n", component]);
+  const out = (r.stdout.toString() + r.stderr.toString()).trim();
+  if (r.exitCode !== 0) return { ok: false, msg: `am start failed (exit ${r.exitCode}): ${out}` };
+  if (/error|exception|not found/i.test(out)) return { ok: false, msg: `am start rejected: ${out.split("\n")[0]}` };
+  return { ok: true, msg: out.split("\n")[0] || "started" };
 }
 
 function deviceDir(): string | undefined {
@@ -185,34 +219,80 @@ function opTake(opts: { secret?: string; partial?: boolean; copy?: boolean; wait
     return { text: `error: am broadcast failed (exit ${r.exitCode}): ${r.stderr.toString().trim() || r.stdout.toString().trim()}`, isError: true };
   }
 
-  // Poll for the new PNG the broadcast should produce.
+  // Poll for the new PNG the broadcast should produce. The app first writes a
+  // dot-prefixed .pending-* file and renames it on MediaStore commit — prefer
+  // settled (non-dot) names so we never copy a half-written file.
   const t0 = Date.now();
   let fresh: Shot[] = [];
+  let pendingOnly = false;
   while (Date.now() - t0 < waitMs) {
-    const now = listShots(dir);
-    fresh = now.filter((s) => !before.has(s.name));
-    if (fresh.length) break;
+    const now = listShots(dir).filter((s) => !before.has(s.name));
+    const settled = now.filter((s) => !s.name.startsWith("."));
+    if (settled.length) { fresh = settled; pendingOnly = false; break; }
+    if (now.length) { fresh = now; pendingOnly = true; }
     Bun.sleepSync(500);
   }
   if (!fresh.length) {
     return { text: `Broadcast sent but no new PNG appeared in ${dir} within ${waitMs}ms.\nNote: check the app password, capture-method permissions (MediaProjection/accessibility per app Settings), and that the screen is on. Existing screenshots are still readable via screenshot_read.`, isError: true };
   }
 
+  // Re-resolve at copy time: the app may rename .pending-* → final between poll and copy.
+  const cur = listShots(dir).filter((s) => !before.has(s.name) && !s.name.startsWith("."));
+  const src = cur.length ? cur[0] : fresh[0];
   const lines = [
-    `Screenshot captured: ${fresh[0].devPath}`,
+    `Screenshot captured: ${src.devPath}`,
     ...(fresh.length > 1 ? [`(also new: ${fresh.slice(1).map((s) => s.name).join(", ")})`] : []),
   ];
+  if (pendingOnly && src.name.startsWith(".")) {
+    lines.push(`Note: the file was still committing (pending name) — re-run screenshot_read to fetch the final name.`);
+  }
   if (opts.copy !== false) {
     const ss = ssDir();
-    const { copied, skipped } = copyToSs([fresh[0]], ss);
+    fs.mkdirSync(ss, { recursive: true });
+    let copied = "";
+    let copyErr = "";
+    for (let attempt = 0; attempt < 2 && !copied; attempt++) {
+      try {
+        if (attempt > 0) Bun.sleepSync(500);
+        const pick = attempt === 0 ? src
+          : (listShots(dir).filter((s) => !before.has(s.name) && !s.name.startsWith("."))[0] ?? fresh[0]);
+        fs.copyFileSync(pick.devPath, path.join(ss, pick.name));
+        copied = pick.name;
+      } catch (e: any) { copyErr = e.message; }
+    }
     const pruned = pruneSs(ss);
-    if (copied.length) lines.push(`Copied to ss/:\n${fmtPaths(ss, copied)}`);
-    if (skipped.length) lines.push(`Already in ss/: ${skipped.join(", ")}`);
+    if (copied) lines.push(`Copied to ss/:\n${fmtPaths(ss, [copied])}`);
+    else lines.push(`Note: copy to ss/ failed (${copyErr}); the PNG remains at ${src.devPath} — fetch it with screenshot_read.`);
     lines.push(`Note: ss/ holds the last ${KEEP} screenshots (pruned ${pruned} old file(s) this call).`);
   } else {
     lines.push(`Note: copy skipped (--no-copy); use screenshot_read to copy it into ${ssDir()}/ss later.`);
   }
   return { text: lines.join("\n"), isError: false };
+}
+
+function opApp(opts: { package: string; activity?: string; waitS?: number; secret?: string; copy?: boolean; waitMs?: number }): { text: string; isError: boolean } {
+  const pkg = (opts.package || "").trim();
+  if (!pkg) return { text: `error: package is required (e.g. com.example.app).`, isError: true };
+  const target = (opts.activity || "").trim() || resolveLauncher(pkg);
+  if (!target) {
+    return { text: `error: could not resolve launcher activity for '${pkg}'. The package may not be installed — or pass activity explicitly as '<pkg>/.Activity'.`, isError: true };
+  }
+  const launched = amStart(target);
+  if (!launched.ok) return { text: `error: could not open '${pkg}' (${target}): ${launched.msg}`, isError: true };
+  const waitS = Math.max(0, opts.waitS ?? 3);
+  if (waitS > 0) Bun.sleepSync(waitS * 1000);
+
+  const take = opTake({ secret: opts.secret, partial: false, copy: opts.copy, waitMs: opts.waitMs });
+
+  // Back to Termux — best effort, never masks the capture result.
+  const termux = resolveLauncher(TERMUX_PKG) || TERMUX_FALLBACK;
+  const back = amStart(termux);
+  const lines = [
+    `Opened ${pkg} (${target}); waited ${waitS}s.`,
+    take.text,
+    back.ok ? `Note: returned to Termux.` : `Note: capture above stands, but returning to Termux failed: ${back.msg}`,
+  ];
+  return { text: lines.join("\n"), isError: take.isError };
 }
 
 function opRead(count?: number): { text: string; isError: boolean } {
@@ -263,6 +343,24 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "screenshot_app",
+    description: `Open an app on the device, wait a few seconds, take a screenshot, then return to Termux. ` +
+      `The launcher activity is resolved automatically (override with activity). ` +
+      `Same secret/copy rules as screenshot_take; ss/ keeps the last ${KEEP} screenshots.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        package: { type: "string", description: "App package to open (e.g. com.example.app)" },
+        activity: { type: "string", description: "Explicit launcher component, e.g. '<pkg>/.Activity' (default: auto-resolved)" },
+        wait_s: { type: "number", description: "Seconds to wait in the app before capturing (default 3)" },
+        secret: { type: "string", description: "ScreenshotTile broadcast password (fallback: SCREENSHOT_SECRET env)" },
+        copy: { type: "boolean", description: "Copy the new PNG into <cwd>/ss/ (default true)" },
+        wait_ms: { type: "number", description: "Max wait for the new PNG to appear (default 15000)" },
+      },
+      required: ["package"],
+    },
+  },
 ];
 
 function callTool(name: string, args: any): { text: string; isError: boolean } {
@@ -277,6 +375,15 @@ function callTool(name: string, args: any): { text: string; isError: boolean } {
         });
       case "screenshot_read":
         return opRead(args?.count);
+      case "screenshot_app":
+        return opApp({
+          package: args?.package,
+          activity: args?.activity,
+          waitS: args?.wait_s,
+          secret: args?.secret,
+          copy: args?.copy,
+          waitMs: args?.wait_ms,
+        });
       default:
         return { text: `unknown tool: ${name}`, isError: true };
     }
@@ -330,7 +437,7 @@ function cli(argv: string[]): number {
   };
   const has = (names: string[]): boolean => argv.slice(1).some((x) => names.includes(x));
   if (!cmd) {
-    console.log(`usage: screenshot <take|read [count]|list [count]|check> ...`);
+    console.log(`usage: screenshot <take|read [count]|app <package>|list [count]|check> ...`);
     return 2;
   }
   try {
@@ -348,6 +455,19 @@ function cli(argv: string[]): number {
       case "read": {
         const n = a && !a.startsWith("-") ? parseInt(a, 10) : 1;
         const r = opRead(Number.isFinite(n) ? n : 1);
+        console.log(r.text);
+        return r.isError ? 1 : 0;
+      }
+      case "app": {
+        if (!a || a.startsWith("-")) { console.log("usage: screenshot app <package> [--activity <pkg>/.Activity] [--wait-s N] [--secret PW] [--no-copy]"); return 2; }
+        const r = opApp({
+          package: a,
+          activity: opt(["--activity"]),
+          waitS: opt(["--wait-s"]) ? parseFloat(opt(["--wait-s"])!) : undefined,
+          secret: opt(["--secret"]),
+          copy: has(["--no-copy"]) ? false : true,
+          waitMs: opt(["--wait-ms"]) ? parseInt(opt(["--wait-ms"])!, 10) : undefined,
+        });
         console.log(r.text);
         return r.isError ? 1 : 0;
       }
