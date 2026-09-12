@@ -72,6 +72,18 @@
         "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
         "HOME": "/root"
       }
+    },
+    "screenshot": {
+      "type": "local",
+      "command": [
+        "/root/.bun/bin/bun",
+        "/root/.config/opencode/screenshot/screenshot.ts",
+        "--mcp"
+      ],
+      "environment": {
+        "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/root"
+      }
     }
   }
 }

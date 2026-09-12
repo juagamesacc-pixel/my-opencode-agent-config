@@ -17,3 +17,6 @@ note/note.db-*
 .slim/
 *.db-wal
 *.db-shm
+
+# Screenshot tool working dir (screenshot_read copies device PNGs here)
+**/ss/

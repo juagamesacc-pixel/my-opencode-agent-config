@@ -70,7 +70,8 @@
         ],
         "skills": [],
         "mcps": [
-          "note"
+          "note",
+          "screenshot"
         ],
         "permission": {
           "todowrite": "allow"
@@ -84,7 +85,8 @@
         ],
         "skills": [],
         "mcps": [
-          "note"
+          "note",
+          "screenshot"
         ],
         "permission": {
           "todowrite": "allow"
@@ -199,7 +201,8 @@
       "skills": [],
       "mcps": [
         "note",
-        "rulebook"
+        "rulebook",
+        "screenshot"
       ]
     },
     "ui-designer": {
@@ -229,7 +232,8 @@
       "skills": [],
       "mcps": [
         "note",
-        "rulebook"
+        "rulebook",
+        "screenshot"
       ]
     },
     "sub-orchestrator": {

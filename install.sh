@@ -10,6 +10,8 @@
 #              (wrapper in ~/.local/bin or /usr/local/bin, plus bashrc PATH if needed).
 #   note       Install the note CLI/MCP tool so `note` is callable from anywhere
 #              (wrapper in ~/.local/bin or /usr/local/bin).
+#   screenshot Install the screenshot CLI/MCP tool so `screenshot` is callable
+#              from anywhere (wrapper in ~/.local/bin or /usr/local/bin).
 #   config     Install the whole OpenCode config from this repo into
 #              ~/.config/opencode (backs up an existing config first).
 #   full       Do note + rulebook + config. (default)
@@ -32,7 +34,7 @@ BIN_DIR=""
 
 for a in "$@"; do
   case "$a" in
-    rulebook|note|config|full) MODE="$a" ;;
+    rulebook|note|screenshot|config|full) MODE="$a" ;;
     --yes|-y)             ASSUME_YES=1 ;;
     *) echo "Unknown arg: $a" >&2; exit 2 ;;
   esac
@@ -308,6 +310,73 @@ WRAPPER_EOF
 }
 
 # ---------------------------------------------------------------------------
+# screenshot CLI/MCP install
+# ---------------------------------------------------------------------------
+install_screenshot() {
+  if [ "$REPO_DIR" != "$CONFIG_DIR" ]; then
+    say "Copying screenshot/ -> $CONFIG_DIR/screenshot/"
+    mkdir -p "$CONFIG_DIR/screenshot"
+    cp -f "$REPO_DIR"/screenshot/screenshot.ts    "$CONFIG_DIR/screenshot/"
+    [ -f "$REPO_DIR/screenshot/README.md" ] && cp -f "$REPO_DIR"/screenshot/README.md "$CONFIG_DIR/screenshot/" || true
+  else
+    say "Repo is already the config dir; using in-place screenshot"
+  fi
+  [ -f "$CONFIG_DIR/screenshot/screenshot.ts" ] || die "screenshot/screenshot.ts not found in $CONFIG_DIR/screenshot/"
+
+  # choose wrapper dir: prefer a dir already on PATH, else ~/.local/bin
+  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+    BIN_DIR=/usr/local/bin
+  else
+    BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
+  fi
+
+  local wrapper="$BIN_DIR/screenshot"
+  # Quoted heredoc: nothing baked in at install time — runtime resolution only.
+  cat > "$wrapper" <<'WRAPPER_EOF'
+#!/usr/bin/env bash
+# screenshot CLI wrapper (installed by my-opencode-agent-config/install.sh)
+# Prefers bun (absolute path) because agent shell PATHs often lack python3.
+# All paths resolve at RUNTIME — nothing is baked in at install time.
+CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+SCREENSHOT_DIR_CLI="$CONFIG_DIR/screenshot"
+
+resolve_bun() {
+  if [ -n "${BUN_BIN:-}" ] && [ -x "$BUN_BIN" ]; then echo "$BUN_BIN"; return 0; fi
+  if command -v bun >/dev/null 2>&1; then command -v bun; return 0; fi
+  for cand in "$HOME/.bun/bin/bun" /root/.bun/bin/bun /usr/local/bin/bun /usr/bin/bun /opt/bun/bin/bun; do
+    if [ -x "$cand" ]; then echo "$cand"; return 0; fi
+  done
+  return 1
+}
+
+if BUN="$(resolve_bun)" && [ -f "$SCREENSHOT_DIR_CLI/screenshot.ts" ]; then
+  exec "$BUN" "$SCREENSHOT_DIR_CLI/screenshot.ts" "$@"
+else
+  echo "screenshot: bun not found and/or screenshot files missing in $SCREENSHOT_DIR_CLI" >&2
+  exit 1
+fi
+WRAPPER_EOF
+  chmod +x "$wrapper"
+  say "Installed 'screenshot' at $wrapper (bun-first, runtime-resolved)"
+  ensure_shell_env
+
+  # post-install sanity
+  if command -v screenshot >/dev/null 2>&1; then
+    say "OK: 'screenshot' resolves to $(command -v screenshot)"
+  else
+    warn "'screenshot' not on current PATH yet — open a new shell (or run: export PATH=\"$HOME/.local/bin:$PATH\")"
+  fi
+
+  # preflight: warn-only, never aborts install
+  if ! "$wrapper" check >/dev/null 2>&1; then
+    warn "preflight: '$wrapper check' did not pass — run it manually to see why (needs am + device dir + SCREENSHOT_SECRET for take)"
+  else
+    say "preflight: screenshot check PASS"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # config install (from a fresh clone into ~/.config/opencode)
 # ---------------------------------------------------------------------------
 install_config() {
@@ -317,7 +386,7 @@ install_config() {
   fi
 
   local items=(opencode.jsonc opencode.jsonc.bak oh-my-opencode-slim.json tui.json \
-               package.json package-lock.json oh-my-opencode-slim skills rulebook note \
+               package.json package-lock.json oh-my-opencode-slim skills rulebook note screenshot \
                .oh-my-opencode-slim .gitignore)
   local missing=()
 
@@ -364,10 +433,11 @@ install_config() {
 case "$MODE" in
   rulebook) install_rulebook ;;
   note)     install_note ;;
+  screenshot) install_screenshot ;;
   config)   install_bun || warn "bun unavailable; config installed but MCP/rulebook will need bun"
             install_config ;;
   # config first in full mode: installing rulebook first would create content in
   # CONFIG_DIR and make config-install treat the fresh dir as "existing config".
-  full)     install_config; install_note; install_rulebook ;;
+  full)     install_config; install_note; install_rulebook; install_screenshot ;;
 esac
 say "Done."
