@@ -84,6 +84,18 @@
         "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
         "HOME": "/root"
       }
+    },
+    "webapp-base-creator": {
+      "type": "local",
+      "command": [
+        "/root/.bun/bin/bun",
+        "/root/.config/opencode/webapp-base-creator/webapp-base-creator.ts",
+        "--mcp"
+      ],
+      "environment": {
+        "PATH": "/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/root"
+      }
     }
   }
 }
