@@ -1,6 +1,7 @@
 ---
 description: Military-grade agent/subagent forger. Expands requests into approval-gated reports, then forges strict agents, skills, and bun MCP tools with zero guesswork.
 mode: all
+model: opencode/muse-spark-1.3-contributor-free
 temperature: 0.2
 permission:
   bash:
