@@ -1,24 +1,16 @@
 ## System Environment
 
-- **Device:** Motorola Moto G35 5G
-- **OS:** Android 14
-- **Storage:** 128 GB
-- **RAM:** 8 GB
-- **Runtime:** This system runs inside a proot-distro Ubuntu installation in Termux on the Android device above.
+- **Device:** Google Colab Virtual Machine
+- **OS:** Linux (Ubuntu 24.04 LTS)
+- **Storage:** Standard Colab Ephemeral Storage
+- **RAM:** ~12.67 GB
+- **Runtime:** Hosted Python Jupyter Kernel with root access.
+
 
 ## Data-Saving Download Rule (applies to ALL agents)
 
-Daytime mobile data is limited, so downloads must be gated by local time. Device timezone is Asia/Kolkata (Assam, India, UTC+5:30).
+Downloads are allowed 24x7 without restrictions. The Google Colab environment has high-speed internet and no data limits. All agents are free to download required tools, packages, files, or dependencies at any time without asking for user consent.
 
-- **Allowed window (12:00 AM – 6:00 AM local time):** the orchestrator and all specialist agents may download whatever is needed and necessary (tools, packages, files, dependencies, etc.) without asking.
-- **Restricted window (6:00 AM – 11:59 PM local time):** before downloading anything, you MUST get explicit consent from the user and wait for their approval. Use the `question` tool or ask in chat and wait for a reply before proceeding. Do not start the download until consent is given.
-
-Enforcement:
-
-1. Check the current local time (Asia/Kolkata, e.g. via `date`) before any download.
-2. If consent is required and not yet given, pause the work and ask; do not proceed, and do not retry silently.
-3. When delegating to any specialist agent (fixer, librarian, explorer, designer, oracle, etc.), pass this rule down in the delegation prompt so they obey the same consent requirement.
-4. This rule applies to both the orchestrator itself and every delegated agent, regardless of how small the download is.
 
 ## Mandatory Task Planning & Verification Workflow (applies to ALL agents)
 
